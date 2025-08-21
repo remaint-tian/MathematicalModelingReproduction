@@ -1,4 +1,3 @@
-
 """
 农作物种植策略优化 - 差分进化遗传算法 (DEGA)
 2024年高教社杯全国大学生数学建模竞赛 C题解决方案
@@ -8,6 +7,7 @@
 2. 优化种群初始化策略
 3. 改进适应度函数
 4. 增强可读性和维护性
+5. 去掉 DEMAND_FILE，直接从 LAND_FILE 和 CROP_FILE 计算需求产量
 """
 
 import os
@@ -20,10 +20,9 @@ warnings.filterwarnings('ignore')
 
 # ==================== 配置参数 ====================
 # 文件路径配置
-DATA_DIR = r"D:\2024_C"  # 当前目录，根据实际情况修改
-LAND_FILE = os.path.join(DATA_DIR, "附件1.xlsx")
-CROP_FILE = os.path.join(DATA_DIR, "附件2.xlsx")
-DEMAND_FILE = os.path.join(DATA_DIR, "2023年各季次农作物实际产量.xlsx")
+DATA_DIR = r"E:\education\math\MathematicalModelingReproduction\建模\2024C差分遗传\C"  # 当前目录，根据实际情况修改
+LAND_FILE = os.path.join(DATA_DIR, "附件1.xlsx")  # 地块信息
+CROP_FILE = os.path.join(DATA_DIR, "附件2.xlsx")  # 作物信息
 
 # 输出文件
 RESULT1_1 = os.path.join(DATA_DIR, "result1_1.xlsx")  # 场景1：超出滞销
@@ -61,135 +60,107 @@ ELITE_RATIO = 0.1        # 精英保留比例
 
 class CropOptimizationProblem:
     """农作物种植优化问题数据处理类"""
-    
+
     def __init__(self):
         self.load_data()
         self.setup_constraints()
-    
+
     def load_data(self):
-        """加载数据"""
+        """加载数据（去除 DEMAND_FILE，直接计算需求产量）"""
         try:
-            # 读取地块信息
+            # ===== 读取地块信息（附件1.xlsx sheet0）=====
             self.land_df = pd.read_excel(LAND_FILE, sheet_name=0)
             self.land_ids = self.land_df["地块名称"].tolist()
             self.land_types = dict(zip(self.land_df["地块名称"], self.land_df["地块类型"]))
             self.land_areas = dict(zip(self.land_df["地块名称"], self.land_df["地块面积/亩"]))
-            
-            # 读取作物信息
-            self.crop_df = pd.read_excel(CROP_FILE, sheet_name=1)
-            self.crop_ids = self.crop_df["作物编号"].tolist()
-            
+
+            # ===== 读取作物种植面积信息（附件2.xlsx sheet0）=====
+            crop_area_df = pd.read_excel(CROP_FILE, sheet_name=0)  # 地块名称、作物名称、种植面积/亩
+
+            # ===== 读取作物亩产量及成本信息（附件2.xlsx sheet1）=====
+            crop_yield_df = pd.read_excel(CROP_FILE, sheet_name=1)
+            self.crop_ids = crop_yield_df["作物编号"].tolist()
+
             # 构建查找字典
             self.yield_dict = {}
             self.cost_dict = {}
             self.price_dict = {}
-            
-            for _, row in self.crop_df.iterrows():
+            for _, row in crop_yield_df.iterrows():
                 key = (row["作物编号"], row["地块类型"])
                 self.yield_dict[key] = row["亩产量/斤"]
                 self.cost_dict[key] = row["种植成本/(元/亩)"]
                 self.price_dict[key] = row["销售单价/(元/斤)"]
 
-            # 读取需求数据
-            try:
-                self.demand_df = pd.read_excel(DEMAND_FILE, sheet_name=0)
-                # 打印列名以便调试
-                print(f"需求数据列名: {self.demand_df.columns.tolist()}")
-            except Exception as e:
-                print(f"警告: 无法读取需求数据文件: {e}")
-                # 创建空的需求DataFrame作为后备
-                self.demand_df = pd.DataFrame(columns=["作物编号", "产量"])
-            
+            # ===== 计算需求产量 =====
+            # 将地块类型合并到种植面积表
+            merged_df = crop_area_df.merge(
+                self.land_df[["地块名称", "地块类型"]],
+                on="地块名称",
+                how="left"
+            ).merge(
+                crop_yield_df[["作物编号", "作物名称", "地块类型", "亩产量/斤"]],
+                on=["作物名称", "地块类型"],
+                how="left"
+            )
+
+            # 计算需求产量（亩产量 × 种植面积）
+            merged_df["需求产量/斤"] = merged_df["亩产量/斤"] * merged_df["种植面积/亩"]
+
+            # 按作物编号汇总总需求产量
+            demand_df = merged_df.groupby(["作物编号", "作物名称"], as_index=False)["需求产量/斤"].sum()
+            demand_df.rename(columns={"需求产量/斤": "产量"}, inplace=True)
+
+            # 存为类变量
+            self.demand_df = demand_df
+
             print(f"✓ 成功加载数据：{len(self.land_ids)}个地块，{len(self.crop_ids)}种作物")
-            
+            print(f"✓ 计算得到 {len(self.demand_df)} 条需求产量记录")
+
         except Exception as e:
             print(f"✗ 数据加载失败：{e}")
             raise
-    
+
     def setup_constraints(self):
         """设置约束条件"""
         self.allowed_crops_dict = {}
-        
         for land in self.land_ids:
             for season in SEASONS:
                 self.allowed_crops_dict[(land, season)] = self.get_allowed_crops(land, season)
-    
+
     def get_allowed_crops(self, land: str, season: int) -> List[int]:
         """获取指定地块和季节允许种植的作物"""
         if land in FLAT_DRY_LANDS + TERRACE_LANDS + HILL_LANDS:
-            # 平旱地、梯田、山坡地：仅粮食作物
             return GRAIN_IDS
-        
         elif land in IRRIGATED_LANDS:
-            # 水浇地
             if season == 1:
                 return [RICE_ID] + VEGETABLE_IDS
             else:
                 return VEGETABLE_IDS + WATER_VEGETABLE_IDS
-        
         elif land in ORDINARY_GH:
-            # 普通大棚
             if season == 1:
                 return VEGETABLE_IDS
             else:
                 return MUSHROOM_IDS
-        
         elif land in SMART_GH:
-            # 智慧大棚：两季蔬菜，不含水生蔬菜
             return [v for v in VEGETABLE_IDS if v not in WATER_VEGETABLE_IDS]
-        
         return []
-    
+
     def get_demand(self, crop_id: int, year: int) -> float:
-        """获取指定作物和年份的需求量"""
+        """
+        获取指定作物的需求量（斤）
+        当前实现不区分年份，因为需求量是按种植面积和亩产量计算的总量。
+        """
         try:
-            # 尝试使用默认列名
-            if "year" in self.demand_df.columns and "crop" in self.demand_df.columns:
-                demand_data = self.demand_df[
-                    (self.demand_df["year"] == year) & 
-                    (self.demand_df["crop"] == crop_id)
-                ]
-                return float(demand_data["demand"].iloc[0]) if not demand_data.empty else 0.0
-            
-            # 2023年数据作为基准
-            # 根据实际列名修改
-            # 在实际应用中，您需要检查实际数据文件的列名，这里假设有"作物编号"列
-            if "作物编号" in self.demand_df.columns:
-                demand_data = self.demand_df[self.demand_df["作物编号"] == crop_id]
-                
-                # 如果有"产量"列
-                if "产量" in self.demand_df.columns:
-                    return float(demand_data["产量"].iloc[0]) if not demand_data.empty else 0.0
-                # 如果有"产量/斤"列
-                elif "产量/斤" in self.demand_df.columns:
-                    return float(demand_data["产量/斤"].iloc[0]) if not demand_data.empty else 0.0
-                else:
-                    # 尝试找到任何可能包含产量的列
-                    for col in demand_data.columns:
-                        if "产量" in col or "需求" in col:
-                            return float(demand_data[col].iloc[0]) if not demand_data.empty else 0.0
-            
-            # 如果无法匹配，使用作物的平均产量作为基准需求
-            return self._get_baseline_demand(crop_id)
-        except Exception as e:
-            print(f"警告: 无法获取作物ID={crop_id}年份={year}的需求量: {e}")
-            return self._get_baseline_demand(crop_id)
-    
-    def _get_baseline_demand(self, crop_id: int) -> float:
-        """获取作物的基准需求（基于平均产量）"""
-        try:
-            # 找到作物在所有地块的平均产量
-            yields = []
-            for land_type in set(self.land_types.values()):
-                if (crop_id, land_type) in self.yield_dict:
-                    yields.append(self.yield_dict[(crop_id, land_type)])
-            
-            if yields:
-                return sum(yields) / len(yields) * 10  # 假设平均种植10亩
+            demand_data = self.demand_df[self.demand_df["作物编号"] == crop_id]
+            if not demand_data.empty:
+                return float(demand_data["产量"].iloc[0])
             else:
-                return 1000  # 默认需求值
-        except Exception:
-            return 1000
+                return 0.0
+        except Exception as e:
+            print(f"警告: 无法获取作物ID={crop_id}的需求量: {e}")
+            return 0.0
+
+
 
 
 class Individual:

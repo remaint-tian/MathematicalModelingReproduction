@@ -21,34 +21,32 @@ from tqdm import tqdm
 # ==================== 配置 ====================
 # --- 重要：在此设置您的数据目录路径 ---
 # 在Windows上，使用'r'前缀来创建原始字符串，以避免路径问题。
-DATA_DIR = r"D:\2024_C"  # 例如: r"C:\Users\YourUser\Documents\MathModel"
+DATA_DIR = r"E:\education\math\MathematicalModelingReproduction\建模\2024C差分遗传\C"  # 例如: r"C:\Users\YourUser\Documents\MathModel"
 
 # --- 文件名 ---
 LAND_FILE = os.path.join(DATA_DIR, "附件1.xlsx")
 CROP_DATA_FILE = os.path.join(DATA_DIR, "附件2.xlsx")
+
 # 在import之后，DATA_DIR 设定好之后
 TEMPLATE1 = os.path.join(DATA_DIR, "template_result1.xlsx")
 TEMPLATE2 = os.path.join(DATA_DIR, "template_result2.xlsx")
+
 # 预加载：
 template1_cols = list(pd.read_excel(TEMPLATE1, nrows=0).columns)
 template2_cols = list(pd.read_excel(TEMPLATE2, nrows=0).columns)
+
 # --- 输出文件 ---
-OUTPUT_DIR = os.path.join(DATA_DIR, "results")
+OUTPUT_DIR = os.path.join(DATA_DIR, "附件3")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 RESULT_FILE_1 = os.path.join(OUTPUT_DIR, "result1_1.xlsx")
 RESULT_FILE_2 = os.path.join(OUTPUT_DIR, "result1_2.xlsx")
 
-'''
-# 模板文件用于获取输出的正确列顺序。
-# 确保 '附件3' 文件夹在您的 DATA_DIR 中。
+
+# 模板文件用于获取输出的正确列顺序。确保 '附件3' 文件夹在您的 DATA_DIR 中。
 RESULT_TEMPLATE_FILE = os.path.join(DATA_DIR, "result1_1.xlsx")
 
-# --- 输出文件 ---
-OUTPUT_DIR = os.path.join(DATA_DIR, "results")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-RESULT_FILE_1 = os.path.join(OUTPUT_DIR, "result1_1.xlsx")
-RESULT_FILE_2 = os.path.join(OUTPUT_DIR, "result1_2.xlsx")
-'''
+
+
 # ==================== 模型常量 ====================
 YEARS = list(range(2024, 2031))
 SEASONS = [1, 2]
@@ -530,53 +528,6 @@ def export_results(ind: Individual, scenario: int):
     print(f"✔ 导出至 {out}")
 
 
-
-
-
-'''# ==================== 工具函数 ====================
-def export_results(ind: Individual, output_path: str):
-    """将最终种植计划导出到Excel文件，格式符合要求。"""
-    rows = []
-    for l_idx, l_id in enumerate(ind.prob.land_ids):
-        land_area = ind.prob.land_info[l_id]["地块面积/亩"]
-        for y_idx, y in enumerate(YEARS):
-            for s_idx, s in enumerate(SEASONS):
-                idx = ind.get_index(l_idx, s_idx, y_idx)
-                crop, prop = ind.crops[idx], ind.props[idx]
-                
-                if crop > 0 and prop > 0:
-                    rows.append({
-                        "年份": y,
-                        "地块名称": l_id,
-                        "季节": s,
-                        "作物编号": crop,
-                        "种植面积(亩)": round(prop * land_area, 2)
-                    })
-    
-    if not rows:
-        print(f"警告: 最终解决方案中没有作物被种植 {output_path}。")
-        return
-
-    result_df = pd.DataFrame(rows)
-    
-    # 通过映射作物编号添加作物名称
-    crop_name_map = ind.prob.crop_params_df.drop_duplicates("作物编号").set_index("作物编号")["作物名称"].to_dict()
-    result_df["作物名称"] = result_df["作物编号"].map(crop_name_map)
-    
-    # 重新排序列以匹配官方模板
-    try:
-        template_cols = pd.read_excel(RESULT_TEMPLATE_FILE).columns
-        # 确保所有必需的列都存在，缺少的列用空字符串填充
-        for col in template_cols:
-            if col not in result_df.columns:
-                result_df[col] = ''
-        result_df = result_df[template_cols]
-    except Exception as e:
-        print(f"警告: 无法加载模板文件进行列排序。使用默认顺序。错误: {e}")
-        
-    result_df.to_excel(output_path, index=False)
-    print(f"✔ 成功导出结果到 {output_path}")
-'''
 # ==================== 主程序执行 ====================
 if __name__ == "__main__":
     print("正在加载问题数据...")
